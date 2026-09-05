@@ -11,7 +11,7 @@ from api.core.security import is_admin
 from api.core.tournament_logic import calculate_prizes, generate_first_round, resolve_byes
 from api.core.users import ensure_user
 from api.db.database import get_session
-from api.db.models import Match, Participant, Payment, Tournament
+from api.db.models import Match, Participant, Payment, Tournament, User
 
 router = APIRouter()
 
@@ -29,6 +29,12 @@ class CreateTournamentRequest(BaseModel):
     prize_distribution: dict | None = None  # e.g. {"1": 50, "2": 30, "3": 20}
 
 
+class JoinByTokenRequest(BaseModel):
+    invite_token: str
+    user_id: int
+    user_name: str = "Foydalanuvchi"
+
+
 class TournamentOut(BaseModel):
     id: int
     name: str
@@ -44,6 +50,28 @@ class TournamentOut(BaseModel):
 
 
 # ---------- routes ----------
+
+@router.get("", response_model=list[TournamentOut])
+async def list_tournaments(
+    created_by: int | None = None,
+    status: str | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Lists tournaments, optionally filtered by creator and/or status.
+    Used by the bot's admin panel to build inline-button menus instead of
+    the admin having to type tournament IDs from memory.
+    """
+    query = select(Tournament)
+    if created_by is not None:
+        query = query.where(Tournament.created_by == created_by)
+    if status is not None:
+        query = query.where(Tournament.status == status)
+    query = query.order_by(Tournament.id.desc())
+
+    result = await session.execute(query)
+    return result.scalars().all()
+
 
 @router.post("", response_model=TournamentOut)
 async def create_tournament(req: CreateTournamentRequest, session: AsyncSession = Depends(get_session)):
@@ -75,6 +103,24 @@ async def create_tournament(req: CreateTournamentRequest, session: AsyncSession 
     return tournament
 
 
+@router.post("/join-by-token")
+async def join_by_token(req: JoinByTokenRequest, session: AsyncSession = Depends(get_session)):
+    """
+    Used by the bot's /join <token> command — the user only needs the short
+    invite code, not the tournament's numeric ID.
+    """
+    await ensure_user(session, req.user_id, req.user_name)
+
+    result = await session.execute(
+        select(Tournament).where(Tournament.invite_token == req.invite_token)
+    )
+    tournament = result.scalar_one_or_none()
+    if tournament is None:
+        raise HTTPException(404, "kod noto'g'ri yoki turnir topilmadi")
+
+    return await _do_join(session, tournament, req.user_id)
+
+
 @router.post("/{tournament_id}/join")
 async def join_tournament(
     tournament_id: int,
@@ -93,31 +139,51 @@ async def join_tournament(
     if tournament.is_private and invite_token != tournament.invite_token:
         raise HTTPException(403, "invalid or missing invite token for a private tournament")
 
+    return await _do_join(session, tournament, user_id)
+
+
+async def _do_join(session: AsyncSession, tournament: Tournament, user_id: int) -> dict:
     if tournament.status != "registration":
         raise HTTPException(400, "tournament is not open for registration")
 
     existing = await session.execute(
         select(Participant).where(
-            Participant.tournament_id == tournament_id, Participant.user_id == user_id
+            Participant.tournament_id == tournament.id, Participant.user_id == user_id
         )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(400, "already joined")
 
     status = "pending_payment" if tournament.is_paid else "joined"
-    participant = Participant(tournament_id=tournament_id, user_id=user_id, status=status)
+    participant = Participant(tournament_id=tournament.id, user_id=user_id, status=status)
     session.add(participant)
 
     if tournament.is_paid:
         session.add(Payment(
-            tournament_id=tournament_id,
+            tournament_id=tournament.id,
             user_id=user_id,
             amount=tournament.entry_fee,
             status="pending",
         ))
 
     await session.commit()
-    return {"ok": True, "status": status}
+    return {"ok": True, "status": status, "tournament_name": tournament.name}
+
+
+@router.get("/{tournament_id}/pending-payments")
+async def list_pending_payments(tournament_id: int, session: AsyncSession = Depends(get_session)):
+    """Lists users with an unconfirmed payment for this tournament, so the
+    admin panel can show a tap-to-confirm button per user instead of the
+    admin typing user IDs from memory."""
+    result = await session.execute(
+        select(Payment, User)
+        .join(User, User.telegram_id == Payment.user_id)
+        .where(Payment.tournament_id == tournament_id, Payment.status == "pending")
+    )
+    return [
+        {"user_id": payment.user_id, "user_name": user.full_name, "amount": float(payment.amount)}
+        for payment, user in result.all()
+    ]
 
 
 @router.post("/{tournament_id}/confirm-payment")
@@ -210,6 +276,27 @@ async def start_tournament(tournament_id: int, admin_id: int, session: AsyncSess
     tournament.status = "ongoing"
     await session.commit()
     return {"ok": True, "matches_created": len(playable), "byes": len(auto_advanced)}
+
+
+@router.get("/{tournament_id}/matches")
+async def list_matches(tournament_id: int, session: AsyncSession = Depends(get_session)):
+    """Lists matches for a tournament, for the admin panel's 'share match'
+    button list."""
+    result = await session.execute(
+        select(Match).where(Match.tournament_id == tournament_id).order_by(Match.round, Match.id)
+    )
+    matches = result.scalars().all()
+    return [
+        {
+            "id": m.id,
+            "round": m.round,
+            "player1_id": m.player1_id,
+            "player2_id": m.player2_id,
+            "game_id": m.game_id,
+            "status": m.status,
+        }
+        for m in matches
+    ]
 
 
 @router.get("/{tournament_id}/share-link/{match_id}")

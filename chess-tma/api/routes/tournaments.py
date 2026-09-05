@@ -26,6 +26,7 @@ class CreateTournamentRequest(BaseModel):
     is_private: bool = False
     is_paid: bool = False
     entry_fee: float = 0
+    payment_instructions: str | None = None  # e.g. "Karta: 8600 xxxx xxxx xxxx (Ism Familiya)"
     prize_distribution: dict | None = None  # e.g. {"1": 50, "2": 30, "3": 20}
 
 
@@ -95,6 +96,7 @@ async def create_tournament(req: CreateTournamentRequest, session: AsyncSession 
         invite_token=secrets.token_urlsafe(12) if req.is_private else None,
         is_paid=req.is_paid,
         entry_fee=req.entry_fee,
+        payment_instructions=req.payment_instructions,
         prize_distribution=req.prize_distribution,
     )
     session.add(tournament)
@@ -167,7 +169,14 @@ async def _do_join(session: AsyncSession, tournament: Tournament, user_id: int) 
         ))
 
     await session.commit()
-    return {"ok": True, "status": status, "tournament_name": tournament.name}
+    return {
+        "ok": True,
+        "status": status,
+        "tournament_id": tournament.id,
+        "tournament_name": tournament.name,
+        "entry_fee": float(tournament.entry_fee) if tournament.is_paid else 0,
+        "payment_instructions": tournament.payment_instructions if tournament.is_paid else None,
+    }
 
 
 @router.get("/{tournament_id}/pending-payments")

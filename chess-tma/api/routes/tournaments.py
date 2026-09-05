@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.security import is_admin
 from api.core.tournament_logic import calculate_prizes, generate_first_round, resolve_byes
+from api.core.users import ensure_user
 from api.db.database import get_session
 from api.db.models import Match, Participant, Payment, Tournament
 
@@ -19,6 +20,7 @@ router = APIRouter()
 
 class CreateTournamentRequest(BaseModel):
     created_by: int
+    created_by_name: str = "Admin"
     name: str
     max_participants: int
     is_private: bool = False
@@ -55,6 +57,8 @@ async def create_tournament(req: CreateTournamentRequest, session: AsyncSession 
         except ValueError as e:
             raise HTTPException(400, str(e))
 
+    await ensure_user(session, req.created_by, req.created_by_name)
+
     tournament = Tournament(
         created_by=req.created_by,
         name=req.name,
@@ -76,8 +80,11 @@ async def join_tournament(
     tournament_id: int,
     user_id: int,
     invite_token: str | None = None,
+    user_name: str = "Foydalanuvchi",
     session: AsyncSession = Depends(get_session),
 ):
+    await ensure_user(session, user_id, user_name)
+
     result = await session.execute(select(Tournament).where(Tournament.id == tournament_id))
     tournament = result.scalar_one_or_none()
     if tournament is None:
@@ -124,6 +131,8 @@ async def confirm_payment(
     automated payment gateway by design)."""
     if not is_admin(admin_id):
         raise HTTPException(403, "only admins can confirm payments")
+
+    await ensure_user(session, admin_id)
 
     payment_result = await session.execute(
         select(Payment).where(

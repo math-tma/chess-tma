@@ -52,7 +52,11 @@ def validate_init_data(init_data: str) -> dict:
 
 
 def is_admin(user_id: int) -> bool:
-    admin_ids = {
+    return user_id in get_admin_ids()
+
+
+def get_admin_ids() -> set[int]:
+    return {
         int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()
     }
-    return user_id in admin_ids
+

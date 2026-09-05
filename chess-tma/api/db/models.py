@@ -38,6 +38,7 @@ class Tournament(Base):
     invite_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False)
     entry_fee: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # e.g. card number to transfer to
     prize_distribution: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"1": 50, "2": 30, "3": 20}
     max_participants: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="registration")  # registration, ongoing, finished

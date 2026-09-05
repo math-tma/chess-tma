@@ -19,6 +19,7 @@ CREATE TABLE tournaments (
     invite_token VARCHAR(64) UNIQUE,
     is_paid BOOLEAN NOT NULL DEFAULT FALSE,
     entry_fee NUMERIC(12,2) DEFAULT 0,
+    payment_instructions TEXT,
     prize_distribution JSONB,
     max_participants INT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'registration',

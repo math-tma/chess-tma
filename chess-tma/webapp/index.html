@@ -1,83 +1,657 @@
 <!DOCTYPE html>
 <html lang="uz">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Chess TMA</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  body { font-family: sans-serif; background: #111; color: #eee; text-align: center; padding: 2rem; }
-  #board { display: grid; grid-template-columns: repeat(8, 1fr); max-width: 400px; margin: 1rem auto; }
-  .sq { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
-  .light { background: #eee; color: #111; }
-  .dark { background: #444; }
-  #status { margin-top: 1rem; font-size: 0.9rem; opacity: 0.8; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Chess TMA</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f1a;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            overflow-x: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 10px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .header h1 {
+            font-size: 1.4rem;
+            color: #c9a227;
+            margin-bottom: 4px;
+        }
+
+        .header .subtitle {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .game-layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* Doska */
+        .board-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 1;
+        }
+
+        .board-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border: 3px solid #c9a227;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        #chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            height: 100%;
+        }
+
+        .square {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(28px, 8vw, 42px);
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .square.light { background: #f0d9b5; }
+        .square.dark { background: #b58863; }
+
+        .square.selected {
+            background: #7b61ff !important;
+        }
+
+        .square.valid-move::after {
+            content: '';
+            position: absolute;
+            width: 30%;
+            height: 30%;
+            background: rgba(0, 180, 0, 0.6);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .square.valid-capture {
+            box-shadow: inset 0 0 0 4px rgba(0, 180, 0, 0.6);
+        }
+
+        .square.last-move {
+            box-shadow: inset 0 0 0 3px rgba(255, 215, 0, 0.7);
+        }
+
+        .square.check {
+            animation: pulse-red 1.2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: inset 0 0 25px rgba(255, 50, 50, 0.6); }
+            50% { box-shadow: inset 0 0 45px rgba(255, 50, 50, 0.9); }
+        }
+
+        .piece {
+            cursor: grab;
+            transition: transform 0.1s;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+            z-index: 2;
+        }
+
+        .piece:active {
+            cursor: grabbing;
+            transform: scale(1.15);
+        }
+
+        /* Kordinatalar */
+        .coord {
+            position: absolute;
+            font-size: 10px;
+            font-weight: bold;
+            color: rgba(0,0,0,0.5);
+            pointer-events: none;
+            z-index: 3;
+        }
+        .coord.file {
+            bottom: 2px;
+            right: 4px;
+        }
+        .coord.rank {
+            top: 2px;
+            left: 4px;
+        }
+
+        /* Status va panel */
+        .info-panel {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.3);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .status-bar .turn-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .turn-dot {
+            width {
+            width: 10px;
+            height: 10px;
+            border-radius: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .turn-dot.active {
+            background: #4ade80;
+            box-shadow: 0 0 8px #4ade80;
+        }
+
+        .status-bar .role-badge {
+            font-size: 0.7rem;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: rgba(201, 162, 39, 0.2);
+            color: #c9a227;
+            border: 1px solid rgba(201, 162, 39, 0.3);
+        }
+
+        .status-bar .role-badge.spectator {
+            background: rgba(100, 100, 100, 0.2);
+            color: #aaa;
+            border-color: rgba(100, 100, 100, 0.3);
+        }
+
+        /* Olingan figuralar */
+        .captured-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 32px;
+            margin-bottom: 8px;
+            font-size: 22px;
+        }
+
+        .captured-row label {
+            font-size: 0.75rem;
+            color: #888;
+            min-width: 50px;
+        }
+
+        /* Yurishlar tarixi */
+        .moves-box {
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.25);
+            border-radius: 8px;
+            padding: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .move-row {
+            display: flex;
+            gap: 8px;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .move-num { color: #666; min-width: 28px; }
+        .move-w { color: #ddd; min-width: 55px; }
+        .move-b { color: #aaa; min-width: 55px; }
+
+        /* Tugmalar */
+        .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.3); }
+
+        /* Piyoda o'sish modali */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .promotion-box {
+            background: #1a1a2e;
+            padding: 20px;
+            border-radius: 16px;
+            border: 2px solid #c9a227;
+            text-align: center;
+        }
+
+        .promotion-box h3 {
+            margin-bottom: 15px;
+            font-size: 1rem;
+            color: #c9a227;
+        }
+
+        .promo-options {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .promo-piece {
+            font-size: 48px;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.08);
+            transition: all 0.2s;
+        }
+
+        .promo-piece:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+
+        /* Xabarlar */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            z-index: 2000;
+            transition: transform 0.3s ease;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        .toast.error { background: rgba(239, 68, 68, 0.9); color: white; }
+        .toast.success { background: rgba(34, 197, 94, 0.9); color: white; }
+        .toast.info { background: rgba(59, 130, 246, 0.9); color: white; }
+
+        /* Loading */
+        .loading-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #0f0f1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            gap: 15px;
+        }
+
+        .loading-screen.hidden { display: none; }
+
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(201, 162, 39, 0.3);
+            border-top-color: #c9a227;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Noto'g'ri ID */
+        .no-game {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+        }
+
+        .no-game h2 {
+            color: #c9a227;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 400px) {
+            .square { font-size: 32px; }
+            .header h1 { font-size: 1.2rem; }
+        }
+    </style>
 </head>
 <body>
-  <h2>Chess TMA</h2>
-  <div id="board"></div>
-  <div id="status">Ulanmoqda...</div>
 
-  <script>
-    // Placeholder renderer — replace this whole file with your real
-    // React/Tailwind build. This just proves the WebSocket wiring works:
-    // it reads ?startapp=watch_<game_id> or a game_id you set manually,
-    // connects to /ws/game/<id>, and renders FEN as plain letters (no
-    // real chess UI/drag-drop here — that's for the real frontend).
+    <!-- Loading -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="spinner"></div>
+        <div style="color:#888; font-size:0.9rem;">Ulanmoqda...</div>
+    </div>
 
-    const tg = window.Telegram?.WebApp;
-    tg?.ready();
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
-    const params = new URLSearchParams(window.location.search);
-    const startParam = params.get("startapp") || params.get("tgWebAppStartParam") || "";
-    const userId = tg?.initDataUnsafe?.user?.id || 0;
+    <!-- Header -->
+    <div class="header" id="headerSection" style="display:none;">
+        <h1>♟️ Chess TMA</h1>
+        <div class="subtitle" id="gameInfo">Turnir o'yini</div>
+    </div>
 
-    let gameId = null;
-    if (startParam.startsWith("watch_")) gameId = startParam.replace("watch_", "");
+    <!-- No game fallback -->
+    <div class="no-game" id="noGame" style="display:none;">
+        <h2>🎮 O'yin topilmadi</h2>
+        <p>Bot orqali turnirga qo'shiling yoki tomosha qilish havolasini oching.</p>
+    </div>
 
-    const boardEl = document.getElementById("board");
-    const statusEl = document.getElementById("status");
+    <!-- Main game -->
+    <div class="game-layout" id="gameLayout" style="display:none;">
+        
+        <!-- Doska -->
+        <div class="board-container">
+            <div class="board-wrapper" id="boardWrapper">
+                <div id="chessboard"></div>
+            </div>
+        </div>
 
-    function renderFen(fen) {
-      const rows = fen.split(" ")[0].split("/");
-      boardEl.innerHTML = "";
-      rows.forEach((row, r) => {
-        let file = 0;
-        for (const ch of row) {
-          if (/\d/.test(ch)) {
-            for (let i = 0; i < parseInt(ch); i++) {
-              addSquare("", r, file); file++;
+        <!-- Info panel -->
+        <div class="info-panel">
+            <div class="status-bar">
+                <div class="turn-indicator">
+                    <div class="turn-dot" id="turnDot"></div>
+                    <span id="statusText">Kutilmoqda...</span>
+                </div>
+                <div class="role-badge" id="roleBadge">O'yinchisiz</div>
+            </div>
+
+            <!-- Olingan figuralar -->
+            <div style="display:flex; gap:10px; margin-bottom:8px;">
+                <div class="captured-row" style="flex:1;">
+                    <label>Oq:</label>
+                    <span id="capturedWhite"></span>
+                </div>
+                <div class="captured-row" style="flex:1;">
+                    <label>Qora:</label>
+                    <span id="capturedBlack"></span>
+                </div>
+            </div>
+
+            <!-- Yurishlar -->
+            <div class="moves-box" id="movesBox">
+                <div style="color:#666; text-align:center; font-size:12px;">Yurishlar ro'yxati</div>
+            </div>
+
+            <!-- Tugmalar -->
+            <div class="btn-row">
+                <button class="btn btn-primary" id="resignBtn" onclick="resign()">🏳️ Taslim bo'lish</button>
+                <button class="btn btn-danger" onclick="reconnect()">🔄 Qayta ulash</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Piyoda o'sish modali -->
+    <div class="modal-overlay" id="promoModal">
+        <div class="promotion-box">
+            <h3>Piyodani o'zgartirish</h3>
+            <div class="promo-options" id="promoOptions"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CHESS TMA FRONTEND
+        // Moslangan backend: FastAPI + WebSocket + python-chess
+        // ============================================
+
+        const PIECES = {
+            'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+            'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+        };
+
+        const FILES = 'abcdefgh';
+        const RANKS = '87654321';
+
+        // Telegram WebApp
+        const tg = window.Telegram?.WebApp;
+        tg?.ready();
+        tg?.expand();
+
+        // URL parametrlari
+        const urlParams = new URLSearchParams(window.location.search);
+        const startParam = urlParams.get("startapp") || urlParams.get("tgWebAppStartParam") || "";
+        const userId = tg?.initDataUnsafe?.user?.id || 0;
+        const userName = tg?.initDataUnsafe?.user?.first_name || "Mehmon";
+
+        // game_id ni aniqlash
+        let gameId = null;
+        if (startParam.startsWith("watch_")) {
+            gameId = startParam.replace("watch_", "");
+        } else if (/^\d+$/.test(startParam)) {
+            gameId = startParam;
+        }
+
+        // Global state
+        let ws = null;
+        let chess = null; // chess.js instance (local, faqat UI uchun)
+        let myRole = "spectator"; // "player" | "spectator"
+        let myColor = null; // "white" | "black" | null
+        let gameStatus = "connecting";
+        let selectedSquare = null;
+        let moveHistory = [];
+        let pendingPromotion = null;
+        let isReconnecting = false;
+
+        // DOM elements
+        const loadingScreen = document.getElementById('loadingScreen');
+        const noGame = document.getElementById('noGame');
+        const headerSection = document.getElementById('headerSection');
+        const gameLayout = document.getElementById('gameLayout');
+        const statusText = document.getElementById('statusText');
+        const turnDot = document.getElementById('turnDot');
+        const roleBadge = document.getElementById('roleBadge');
+        const resignBtn = document.getElementById('resignBtn');
+        const toastEl = document.getElementById('toast');
+
+        // ============================================
+        // BOSHLASH
+        // ============================================
+
+        function init() {
+            if (!gameId) {
+                loadingScreen.classList.add('hidden');
+                noGame.style.display = 'block';
+                return;
             }
-          } else {
-            addSquare(ch, r, file); file++;
-          }
-        }
-      });
-    }
 
-    function addSquare(piece, r, f) {
-      const div = document.createElement("div");
-      div.className = "sq " + ((r + f) % 2 === 0 ? "light" : "dark");
-      div.textContent = piece;
-      boardEl.appendChild(div);
-    }
-
-    if (gameId) {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.host}/ws/game/${gameId}?user_id=${userId}`);
-      ws.onopen = () => statusEl.textContent = "Ulandi";
-      ws.onmessage = (ev) => {
-        const data = JSON.parse(ev.data);
-        if (data.fen) renderFen(data.fen);
-        if (data.status && data.status !== "ongoing") {
-          statusEl.textContent = `O'yin tugadi: ${data.status}`;
+            headerSection.style.display = 'block';
+            gameLayout.style.display = 'flex';
+            document.getElementById('gameInfo').textContent = `O'yin #${gameId} | ID: ${userId}`;
+            
+            createBoard();
+            connectWebSocket();
         }
-      };
-      ws.onclose = () => statusEl.textContent = "Uzildi";
-    } else {
-      statusEl.textContent = "game_id topilmadi — bu shunchaki namuna sahifa.";
-    }
-  </script>
-</body>
-</html>
+
+        // ============================================
+        // WEBSOCKET
+        // ============================================
+
+        function connectWebSocket() {
+            if (ws) {
+                try { ws.close(); } catch(e) {}
+            }
+
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const wsUrl = `${proto}://${location.host}/ws/game/${gameId}?user_id=${userId}`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                isReconnecting = false;
+                showToast('Ulandi', 'success');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onclose = () => {
+                if (!isReconnecting) {
+                    showToast('Aloqa uzildi. Qayta ulanish...', 'error');
+                    setTimeout(connectWebSocket, 3000);
+                }
+            };
+
+            ws.onerror = (err) => {
+                console.error('WebSocket xato:', err);
+                showToast('Aloqa xatosi', 'error');
+            };
+        }
+
+        function handleMessage(data) {
+            console.log('WS:', data);
+
+            switch (data.type) {
+                case 'state':
+                    // Boshlang'ich holat
+                    loadingScreen.classList.add('hidden');
+                    myRole = data.role || 'spectator';
+                    gameStatus = data.status;
+                    updateRoleUI();
+                    
+                    // chess.js instance yangilash
+                    chess = new Chess(data.fen);
+                    updateBoardFromFEN(data.fen);
+                    updateStatus(data.status, data.winner_color);
+                    
+                    // O'z rangini aniqlash
+                    if (myRole === 'player') {
+                        // FEN'dan kim yurayotganini bilib, o'zimizni aniqlaymiz
+                        // Bu server tomonidan aniqlanishi kerak, lekin hozircha taxmin
+                        determineMyColor();
+                    }
+                    break;
+
+                case 'move':
+                    // Kimdir yurdi
+                    chess = new Chess(data.fen);
+                    updateBoardFromFEN(data.fen);
+                    updateStatus(data.status, data.winner_color);
+                    addMoveToHistory(data.san, data.uci);
+                    
+                    // Agar o'yin tugagan bo'lsa
+                    if (data.status !== 'ongoing') {
+                        showGameOver(data.status, data.winner_color);
+                    }
+                    break;
+
+                case 'error':
+                    showToast(`Xato: ${translateError(data.reason)}`, 'error');
+                    // Tanlovni tozalash
+                    clearSelection();
+                    break;
+            }
+        }
+
+        function determineMyColor() {
+            // Server tomonida qo'shimcha ma'lumot kerak, lekin hozircha
+            // FEN va user_id orqali taxmin qilamiz
+            // Agar oq yurayotgan bo'lsa va biz yurish jo'natgan bo'lsak, biz oqmiz
+            myColor = 'white'; // Default, server to'g'ri aniqlashi kerak
+        }
+
+        function translateError(reason) {
+            const map = {
+                'game_not_found': 'O\'yin topilmadi',
+                'spectators_cannot_move': 'Tomoshabin yura olmaydi',
+                'game_not_active': 'O\'yin faol emas',
+                'not_your_turn': 'Sizning navbatingiz emas',
+                'illegal_move': 'Noto\'g\'ri yurish',
+                'malformed_move': 'Yurish formati noto\'g\'ri'
+            };
+            return map[reason] || reason;
+        }
+
+        // ============================================
+        // DOSKA
+        // ============================================
+
+        function createBoard() {
+            const board = document.getElementById('chessboard');
+            board.innerHTML = '';
+
+            for (let r = 0; r < 8; r++) {
+                for (let f = 0; f < 8; f++) {
+                    const sq = document.createElement('div');
+                    const isLight = (r + f) % 2 === 0;
+ 

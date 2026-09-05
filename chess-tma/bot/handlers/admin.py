@@ -11,17 +11,7 @@ router = Router()
 API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 
-def admin_only(handler):
-    async def wrapper(message: types.Message, *args, **kwargs):
-        if not is_admin(message.from_user.id):
-            await message.answer("Bu buyruq faqat adminlar uchun.")
-            return
-        return await handler(message, *args, **kwargs)
-    return wrapper
-
-
 @router.message(Command("create_tournament"))
-@admin_only
 async def cmd_create_tournament(message: types.Message, command: CommandObject):
     """
     Usage: /create_tournament <name> <max_participants> [entry_fee]
@@ -29,6 +19,10 @@ async def cmd_create_tournament(message: types.Message, command: CommandObject):
     A fuller version would open a WebApp form instead of parsing raw text —
     this is the minimal command-line path to get a tournament created.
     """
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+
     if not command.args:
         await message.answer(
             "Foydalanish: /create_tournament <nomi> <max_ishtirokchi> [kirish_narxi]"
@@ -77,8 +71,11 @@ async def cmd_create_tournament(message: types.Message, command: CommandObject):
 
 
 @router.message(Command("start_tournament"))
-@admin_only
 async def cmd_start_tournament(message: types.Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+
     if not command.args or not command.args.strip().isdigit():
         await message.answer("Foydalanish: /start_tournament <tournament_id>")
         return
@@ -103,9 +100,12 @@ async def cmd_start_tournament(message: types.Message, command: CommandObject):
 
 
 @router.message(Command("confirm_payment"))
-@admin_only
 async def cmd_confirm_payment(message: types.Message, command: CommandObject):
     """Usage: /confirm_payment <tournament_id> <user_id>"""
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+
     args = (command.args or "").split()
     if len(args) != 2 or not all(a.isdigit() for a in args):
         await message.answer("Foydalanish: /confirm_payment <tournament_id> <user_id>")
@@ -127,10 +127,13 @@ async def cmd_confirm_payment(message: types.Message, command: CommandObject):
 
 
 @router.message(Command("share_match"))
-@admin_only
 async def cmd_share_match(message: types.Message, command: CommandObject):
     """Usage: /share_match <tournament_id> <match_id> — posts a spectator
     link. Send this command in the group/channel you want the link posted to."""
+    if not is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+
     args = (command.args or "").split()
     if len(args) != 2 or not all(a.isdigit() for a in args):
         await message.answer("Foydalanish: /share_match <tournament_id> <match_id>")

@@ -24,6 +24,7 @@ class CreateTournament(StatesGroup):
     waiting_name = State()
     waiting_max_participants = State()
     waiting_entry_fee = State()
+    waiting_payment_instructions = State()
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -89,6 +90,27 @@ async def fsm_create_entry_fee(message: types.Message, state: FSMContext):
         return
 
     entry_fee = float(raw)
+    await state.update_data(entry_fee=entry_fee)
+
+    if entry_fee > 0:
+        await state.set_state(CreateTournament.waiting_payment_instructions)
+        await message.answer(
+            "To'lov qanday amalga oshiriladi? Ishtirokchilarga ko'rsatiladigan "
+            "matnni yozing (masalan: karta raqamingiz va F.I.Sh.):\n\n"
+            "Misol: Karta: 8600 1234 5678 9012 (Aziz Aliyev)"
+        )
+        return
+
+    await _finalize_tournament(message, state)
+
+
+@router.message(CreateTournament.waiting_payment_instructions)
+async def fsm_create_payment_instructions(message: types.Message, state: FSMContext):
+    await state.update_data(payment_instructions=message.text.strip())
+    await _finalize_tournament(message, state)
+
+
+async def _finalize_tournament(message: types.Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
 
@@ -98,8 +120,9 @@ async def fsm_create_entry_fee(message: types.Message, state: FSMContext):
             "created_by_name": message.from_user.full_name,
             "name": data["name"],
             "max_participants": data["max_participants"],
-            "is_paid": entry_fee > 0,
-            "entry_fee": entry_fee,
+            "is_paid": data["entry_fee"] > 0,
+            "entry_fee": data["entry_fee"],
+            "payment_instructions": data.get("payment_instructions"),
             "is_private": True,
         })
 

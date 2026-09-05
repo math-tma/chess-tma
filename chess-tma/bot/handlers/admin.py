@@ -47,6 +47,7 @@ async def cmd_create_tournament(message: types.Message, command: CommandObject):
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{API_BASE}/api/tournaments", json={
             "created_by": message.from_user.id,
+            "created_by_name": message.from_user.full_name,
             "name": name,
             "max_participants": max_participants,
             "is_paid": is_paid,

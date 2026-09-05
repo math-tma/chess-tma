@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chess TMA</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; text-align: center; padding: 2rem; }
+  #board { display: grid; grid-template-columns: repeat(8, 1fr); max-width: 400px; margin: 1rem auto; }
+  .sq { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+  .light { background: #eee; color: #111; }
+  .dark { background: #444; }
+  #status { margin-top: 1rem; font-size: 0.9rem; opacity: 0.8; }
+</style>
+</head>
+<body>
+  <h2>Chess TMA</h2>
+  <div id="board"></div>
+  <div id="status">Ulanmoqda...</div>
+
+  <script>
+    // Placeholder renderer — replace this whole file with your real
+    // React/Tailwind build. This just proves the WebSocket wiring works:
+    // it reads ?startapp=watch_<game_id> or a game_id you set manually,
+    // connects to /ws/game/<id>, and renders FEN as plain letters (no
+    // real chess UI/drag-drop here — that's for the real frontend).
+
+    const tg = window.Telegram?.WebApp;
+    tg?.ready();
+
+    const params = new URLSearchParams(window.location.search);
+    const startParam = params.get("startapp") || params.get("tgWebAppStartParam") || "";
+    const userId = tg?.initDataUnsafe?.user?.id || 0;
+
+    let gameId = null;
+    if (startParam.startsWith("watch_")) gameId = startParam.replace("watch_", "");
+
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+
+    function renderFen(fen) {
+      const rows = fen.split(" ")[0].split("/");
+      boardEl.innerHTML = "";
+      rows.forEach((row, r) => {
+        let file = 0;
+        for (const ch of row) {
+          if (/\d/.test(ch)) {
+            for (let i = 0; i < parseInt(ch); i++) {
+              addSquare("", r, file); file++;
+            }
+          } else {
+            addSquare(ch, r, file); file++;
+          }
+        }
+      });
+    }
+
+    function addSquare(piece, r, f) {
+      const div = document.createElement("div");
+      div.className = "sq " + ((r + f) % 2 === 0 ? "light" : "dark");
+      div.textContent = piece;
+      boardEl.appendChild(div);
+    }
+
+    if (gameId) {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${location.host}/ws/game/${gameId}?user_id=${userId}`);
+      ws.onopen = () => statusEl.textContent = "Ulandi";
+      ws.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.fen) renderFen(data.fen);
+        if (data.status && data.status !== "ongoing") {
+          statusEl.textContent = `O'yin tugadi: ${data.status}`;
+        }
+      };
+      ws.onclose = () => statusEl.textContent = "Uzildi";
+    } else {
+      statusEl.textContent = "game_id topilmadi — bu shunchaki namuna sahifa.";
+    }
+  </script>
+</body>
+</html>

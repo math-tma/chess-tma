@@ -7,11 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.core.chess_engine import new_game_fen
 from api.core.security import is_admin
 from api.core.tournament_logic import calculate_prizes, generate_first_round, resolve_byes
 from api.core.users import ensure_user
 from api.db.database import get_session
-from api.db.models import Match, Participant, Payment, Tournament, User
+from api.db.models import Game, Match, Participant, Payment, Tournament, User
 
 router = APIRouter()
 
@@ -261,14 +262,26 @@ async def start_tournament(tournament_id: int, admin_id: int, session: AsyncSess
     pairings = generate_first_round(joined_ids)
     playable, auto_advanced = resolve_byes(pairings)
 
+    created_matches = []
     for p in playable:
-        session.add(Match(
+        # Randomize who plays white so the same player isn't always white.
+        p1, p2 = p.player1_id, p.player2_id
+        white, black = (p1, p2) if secrets.randbelow(2) == 0 else (p2, p1)
+
+        game = Game(player_white=white, player_black=black, fen=new_game_fen(), status="ongoing")
+        session.add(game)
+        await session.flush()  # get game.id before creating the match row
+
+        match = Match(
             tournament_id=tournament_id,
             round=1,
-            player1_id=p.player1_id,
-            player2_id=p.player2_id,
-            status="pending",
-        ))
+            player1_id=p1,
+            player2_id=p2,
+            game_id=game.id,
+            status="ongoing",
+        )
+        session.add(match)
+        created_matches.append({"player1_id": p1, "player2_id": p2, "game_id": game.id})
 
     # Byes auto-advance: recorded as finished matches with no opponent, so
     # the bracket UI can show "bye" and next_round logic picks them up.
@@ -284,7 +297,12 @@ async def start_tournament(tournament_id: int, admin_id: int, session: AsyncSess
 
     tournament.status = "ongoing"
     await session.commit()
-    return {"ok": True, "matches_created": len(playable), "byes": len(auto_advanced)}
+    return {
+        "ok": True,
+        "matches_created": len(playable),
+        "byes": len(auto_advanced),
+        "matches": created_matches,  # bot uses this to notify each player with their game link
+    }
 
 
 @router.get("/{tournament_id}/matches")

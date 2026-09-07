@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from api.core.chess_engine import ChessGame, GameStatus
 from api.db.database import async_session
-from api.db.models import Game, MoveRecord
+from api.db.models import Game, MoveRecord, User
 
 router = APIRouter()
 
@@ -45,6 +45,17 @@ class RoomManager:
 rooms = RoomManager()
 
 
+async def _player_names(session, game_row: Game) -> dict:
+    result = await session.execute(
+        select(User).where(User.telegram_id.in_([game_row.player_white, game_row.player_black]))
+    )
+    names = {u.telegram_id: u.full_name for u in result.scalars().all()}
+    return {
+        "white_name": names.get(game_row.player_white, "Oq"),
+        "black_name": names.get(game_row.player_black, "Qora"),
+    }
+
+
 @router.websocket("/ws/game/{game_id}")
 async def game_socket(websocket: WebSocket, game_id: int, user_id: int):
     """
@@ -59,29 +70,54 @@ async def game_socket(websocket: WebSocket, game_id: int, user_id: int):
     async with async_session() as session:
         result = await session.execute(select(Game).where(Game.id == game_id))
         game_row = result.scalar_one_or_none()
+        names = await _player_names(session, game_row) if game_row else {}
 
     if game_row is None:
         await websocket.send_json({"type": "error", "reason": "game_not_found"})
         await websocket.close()
         return
 
-    is_player = user_id in (game_row.player_white, game_row.player_black)
-    role = "player" if is_player else "spectator"
+    if user_id == game_row.player_white:
+        role, your_color = "player", "white"
+    elif user_id == game_row.player_black:
+        role, your_color = "player", "black"
+    else:
+        role, your_color = "spectator", None
+
     room.connections[websocket] = {"user_id": user_id, "role": role}
 
+    chess_game = ChessGame(fen=game_row.fen)
     await websocket.send_json({
         "type": "state",
         "fen": game_row.fen,
         "status": game_row.status,
-        "role": role,  # frontend uses this to disable the board for spectators
+        "role": role,              # frontend disables the board for spectators
+        "your_color": your_color,  # "white" | "black" | None (spectator)
+        "turn": chess_game.turn,
+        **names,
     })
 
     try:
         while True:
             raw = await websocket.receive_text()
             data = json.loads(raw)
+            msg_type = data.get("type")
 
-            if data.get("type") != "move":
+            if msg_type == "legal_moves_request":
+                async with async_session() as session:
+                    result = await session.execute(select(Game).where(Game.id == game_id))
+                    current = result.scalar_one_or_none()
+                if current is None:
+                    continue
+                cg = ChessGame(fen=current.fen)
+                await websocket.send_json({
+                    "type": "legal_moves",
+                    "from": data.get("square"),
+                    "targets": cg.legal_moves_from(data.get("square", "")),
+                })
+                continue
+
+            if msg_type != "move":
                 continue
 
             if role != "player":
@@ -135,6 +171,7 @@ async def game_socket(websocket: WebSocket, game_id: int, user_id: int):
                 ))
                 await session.commit()
 
+            next_turn = chess_game.turn  # already reflects the side to move now, after push_move
             await room.broadcast({
                 "type": "move",
                 "uci": move_result.uci,
@@ -142,6 +179,7 @@ async def game_socket(websocket: WebSocket, game_id: int, user_id: int):
                 "fen": move_result.fen_after,
                 "status": move_result.status.value,
                 "winner_color": move_result.winner_color,
+                "turn": next_turn,
             })
 
     except WebSocketDisconnect:

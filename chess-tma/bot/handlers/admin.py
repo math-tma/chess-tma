@@ -5,13 +5,35 @@ from aiogram import F, Router, types
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from api.core.security import is_admin
 
 router = Router()
 
 API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000")
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://your-app.up.railway.app")
+
+
+async def _notify_players_of_matches(bot, matches: list[dict]):
+    """After a tournament starts, ping each paired player with a button
+    that opens their own game in the WebApp."""
+    for m in matches:
+        for player_id in (m["player1_id"], m["player2_id"]):
+            if player_id is None:
+                continue
+            play_url = f"{WEBAPP_URL}?startapp=play_{m['game_id']}"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="♟️ O'yinni boshlash", web_app=WebAppInfo(url=play_url))]
+            ])
+            try:
+                await bot.send_message(
+                    player_id,
+                    "🏁 Turnir boshlandi! Sizning o'yiningiz tayyor:",
+                    reply_markup=keyboard,
+                )
+            except Exception:
+                continue  # foydalanuvchi hali botga /start bosmagan bo'lishi mumkin
 
 
 # =========================================================================
@@ -192,6 +214,7 @@ async def cb_start_selected(callback: types.CallbackQuery):
         return
 
     data = resp.json()
+    await _notify_players_of_matches(callback.bot, data.get("matches", []))
     await callback.message.edit_text(
         f"🏁 Turnir boshlandi! {data['matches_created']} ta o'yin yaratildi, "
         f"{data['byes']} ta ishtirokchi bye orqali avtomatik o'tdi.",
@@ -441,6 +464,7 @@ async def cmd_start_tournament(message: types.Message, command: CommandObject):
         return
 
     data = resp.json()
+    await _notify_players_of_matches(message.bot, data.get("matches", []))
     await message.answer(
         f"🏁 Turnir boshlandi! {data['matches_created']} ta o'yin yaratildi, "
         f"{data['byes']} ta ishtirokchi bye orqali avtomatik o'tdi."
